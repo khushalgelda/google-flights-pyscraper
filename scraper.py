@@ -13,7 +13,7 @@ class Driver:
     options: list of web driver options
     """
 
-    def __init__(self, path, options):
+    def __init__(self, path, options=()):
         self.path = path
         self.options = options
         self.driver_options = webdriver.ChromeOptions()
@@ -65,9 +65,9 @@ def search_flights(driver, search_filter):
                                                                                       search_filter.arr,
                                                                                       search_filter.fly_date.\
                                                                                       strftime("%Y-%m-%d"))
-    print(url)
+    print('Searching for flights from {} to {} for {}'.format(search_filter.dep, search_filter.arr, search_filter.fly_date.\
+                                                                                      strftime("%Y-%m-%d")))
     driver.driver.get(url)
-
     driver.driver.maximize_window()
     sleep(4)
     driver.click_button_xpath("//div[@class='VfPpkd-RLmnJb']")
@@ -92,23 +92,20 @@ class Scraper:
         # find data (departure time, arrival time, airlines, flight duration, number of stops and price) in the
         # unexpanded div
         flight_results_unexpanded = page_soup.findAll("div", {"class": "OgQvJf nKlB3b"})
-        print('Total Flights = {}'.format(len(flight_results_unexpanded)))
+        print('Total available flights = {}'.format(len(flight_results_unexpanded)))
         # search_results is a dictionary to store flight info
         search_results = {}
 
         # get the list of all the toggles so that they can be expanded
         toggles = self.driver.get_element_list("//div[@class='xKbyce']")
-        print(len(toggles))
         # expand all the toggles first
         for x in range(len(toggles)):
             self.driver.execute_script("arguments[0].click();", toggles[x])
-        print(len(toggles))
         # get page source of the full page to get layover info, and cabin class
-        print(type(self.driver.page_source))
-        print(type(self.driver.driver.page_source))
         page_source = self.driver.page_source()
         page_soup = soup(page_source, "html.parser")
 
+        print('Extracting URLs for all available flights')
         url = []
         for x in range(len(toggles)):
             select_flight_buttons = self.driver.get_element_list("//button[@aria-label='Select flight']")
@@ -128,7 +125,6 @@ class Scraper:
             url.append(self.driver.current_url())
             if x == len(toggles) - 1:
                 break
-            print('Breakout {}'.format(x))
             self.driver.back()
             sleep(3)
             toggle_url = self.driver.get_element_list("//div[@class='xKbyce']")
@@ -137,10 +133,13 @@ class Scraper:
                                                                                                   len(
                                                                                                       toggle_url)))
                 self.driver.close()
+                self.driver = Driver(self.driver.path, self.driver.options)
                 self.scrape()
+                sys.exit(0)
             self.driver.execute_script("arguments[0].click();", toggle_url[x + 1])
         self.driver.close()
 
+        print('Extracting all information about available flights')
         i = 0
         for flight_result in flight_results_unexpanded:
             search_results[i] = {}
@@ -185,6 +184,7 @@ class Scraper:
             search_results[i]['CABIN_CLASS'] = cabin_class
             i = i + 1
 
+        print('Creating DataFrame')
         df = pd.DataFrame(search_results)
         df = df.T
         land_date = [self.search_filter.fly_date] * len(flight_results_unexpanded)
@@ -203,10 +203,10 @@ class Scraper:
 def main():
     # user inputs
     web_driver_path = '/Users/khugel01/Downloads/chromedriver'
-    driver_options = ['--ignore-certificate-errors',
+    driver_options = ('--ignore-certificate-errors',
                       '--incognito',
                       '--headless'
-                      ]
+                      )
     departure_airport = 'DAL'
     arrival_airport = 'SFO'
     fly_date = datetime.datetime(2021, 3, 10)
@@ -215,7 +215,15 @@ def main():
     driver = Driver(web_driver_path, driver_options)
     search_filter = SearchFilter(departure_airport, arrival_airport, fly_date)
     scraper = Scraper(driver, search_filter)
-    scraper.scrape()
+    for rerun_count in range(2):
+        try:
+            scraper.scrape()
+            break
+        except Exception as e:
+            # In case some random exception occurs, scraper will make 1 more attempt.
+            if rerun_count == 1:
+                sys.exit('{}: Retry failed after an exception occurred'.format(e))
+            continue
 
 
 main()
