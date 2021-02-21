@@ -63,10 +63,10 @@ def search_flights(driver, search_filter):
     """Searches google flights for one-way flights based on the departure, arrival airports and travel date"""
     url = "https://www.google.com/flights?hl=en#flt={}.{}.{};c:USD;e:1;sd:1;t".format(search_filter.dep,
                                                                                       search_filter.arr,
-                                                                                      search_filter.fly_date.\
+                                                                                      search_filter.fly_date.
                                                                                       strftime("%Y-%m-%d"))
-    print('Searching for flights from {} to {} for {}'.format(search_filter.dep, search_filter.arr, search_filter.fly_date.\
-                                                                                      strftime("%Y-%m-%d")))
+    print('Searching for flights from {} to {} for {}'.format(search_filter.dep, search_filter.arr, search_filter.
+                                                              fly_date.strftime("%Y-%m-%d")))
     driver.driver.get(url)
     driver.driver.maximize_window()
     sleep(4)
@@ -79,6 +79,73 @@ def search_flights(driver, search_filter):
     return page_soup
 
 
+def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
+    print('Extracting all information about available flights')
+    i = 0
+    search_results = {}
+    for flight_result in flight_results_unexpanded:
+        search_results[i] = {}
+        search_results[i]['DEP'] = \
+            flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
+                2].text
+        search_results[i]['ARR'] = \
+            flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
+                3].text
+        search_results[i]['BRAND'] = flight_result.findAll('div', {'class': 'TQqf0e sSHqwe tPgKwe ogfYpf'})[
+            0].span.text
+        if flight_result.findAll('span', {'class': 'pIgMWd ogfYpf'})[0].text == 'Nonstop':
+            search_results[i]['STOPS'] = 0
+        else:
+            search_results[i]['STOPS'] = int(
+                flight_result.findAll('span', {'class': 'pIgMWd ogfYpf'})[0].text.split(' ')[0])
+
+        if len(flight_result.findAll('div', {'class': 'BVAVmf I11szd POX3ye'})) == 0:
+            search_results[i]['PRICE'] = 'NA'
+        else:
+            search_results[i]['PRICE'] = \
+                flight_result.findAll('div', {'class': 'BVAVmf I11szd POX3ye'})[0].findAll('div')[
+                    1].span.text
+
+        search_results[i]['TRIP_DURATION'] = flight_result.findAll('div', {'class': 'gvkrdb AdWm1c tPgKwe ogfYpf'})[
+            0].text
+        search_results[i]['DEP_DATE'] = fly_date
+        search_results[i]['DEP_TIME'] = \
+            flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
+                0].text
+        search_results[i]['ARR_TIME'] = \
+            flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
+                1].text
+        layovers = []
+        for j in range(search_results[i]['STOPS']):
+            layovers.append(
+                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[
+                    j].text.replace('layover', 'at '))
+        cabin_class = \
+            page_soup.findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[i].findAll('span', {'class': 'Xsgmwe'})[
+                2].text
+        search_results[i]['LAYOVER'] = ' , '.join(layovers)
+        search_results[i]['CABIN_CLASS'] = cabin_class
+        i = i + 1
+    return search_results
+
+
+def create_dataframe(search_results, result_count, fly_date, urls):
+    print('Creating DataFrame')
+    df = pd.DataFrame(search_results)
+    df = df.T
+    land_date = [fly_date] * result_count
+    add_days_to_dep_date = list(df.ARR_TIME.str.split('+').str[1].fillna(value=0).astype(int))
+    for x in range(len(add_days_to_dep_date)):
+        land_date[x] = land_date[x] + timedelta(days=add_days_to_dep_date[x])
+
+    df['ARR_DATE'] = land_date
+    df['ARR_TIME'] = df.ARR_TIME.str.split('+').str[0]
+    df['URL'] = urls
+    # to dump the flight results in csv, uncomment below line
+    # df.to_csv('GoogleFlights.csv', sep=',')
+    return df
+
+
 class Scraper:
     def __init__(self, driver: Driver, search_filter: SearchFilter):
         self.driver = driver
@@ -88,25 +155,28 @@ class Scraper:
         # driver.set_page_load_timeout(10)
         self.driver.driver.implicitly_wait(10)
 
-        page_soup = search_flights(self.driver, self.search_filter)
+        page_soup_unexpanded = search_flights(self.driver, self.search_filter)
         # find data (departure time, arrival time, airlines, flight duration, number of stops and price) in the
         # unexpanded div
-        flight_results_unexpanded = page_soup.findAll("div", {"class": "OgQvJf nKlB3b"})
+        flight_results_unexpanded = page_soup_unexpanded.findAll("div", {"class": "OgQvJf nKlB3b"})
         print('Total available flights = {}'.format(len(flight_results_unexpanded)))
-        # search_results is a dictionary to store flight info
-        search_results = {}
 
         # get the list of all the toggles so that they can be expanded
         toggles = self.driver.get_element_list("//div[@class='xKbyce']")
+
         # expand all the toggles first
         for x in range(len(toggles)):
             self.driver.execute_script("arguments[0].click();", toggles[x])
+
         # get page source of the full page to get layover info, and cabin class
         page_source = self.driver.page_source()
         page_soup = soup(page_source, "html.parser")
 
+        # search_results is a dictionary to store flight info
+        search_results = get_flight_info(flight_results_unexpanded, self.search_filter.fly_date, page_soup)
+
         print('Extracting URLs for all available flights')
-        url = []
+        urls = []
         for x in range(len(toggles)):
             select_flight_buttons = self.driver.get_element_list("//button[@aria-label='Select flight']")
             # the following logic is in place to avoid clicking a non-clickable button
@@ -122,7 +192,7 @@ class Scraper:
                     if i == len(select_flight_buttons):
                         sys.exit('{}: Retries to click Select flight button exhausted after {} retries '.format(e, i))
                     continue
-            url.append(self.driver.current_url())
+            urls.append(self.driver.current_url())
             if x == len(toggles) - 1:
                 break
             self.driver.back()
@@ -139,65 +209,7 @@ class Scraper:
             self.driver.execute_script("arguments[0].click();", toggle_url[x + 1])
         self.driver.close()
 
-        print('Extracting all information about available flights')
-        i = 0
-        for flight_result in flight_results_unexpanded:
-            search_results[i] = {}
-            search_results[i]['DEP'] = \
-                flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
-                    2].text
-            search_results[i]['ARR'] = \
-                flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
-                    3].text
-            search_results[i]['BRAND'] = flight_result.findAll('div', {'class': 'TQqf0e sSHqwe tPgKwe ogfYpf'})[
-                0].span.text
-            if flight_result.findAll('span', {'class': 'pIgMWd ogfYpf'})[0].text == 'Nonstop':
-                search_results[i]['STOPS'] = 0
-            else:
-                search_results[i]['STOPS'] = int(
-                    flight_result.findAll('span', {'class': 'pIgMWd ogfYpf'})[0].text.split(' ')[0])
-
-            if len(flight_result.findAll('div', {'class': 'BVAVmf I11szd POX3ye'})) == 0:
-                search_results[i]['PRICE'] = 'NA'
-            else:
-                search_results[i]['PRICE'] = \
-                    flight_result.findAll('div', {'class': 'BVAVmf I11szd POX3ye'})[0].findAll('div')[
-                        1].span.text
-
-            search_results[i]['TRIP_DURATION'] = flight_result.findAll('div', {'class': 'gvkrdb AdWm1c tPgKwe ogfYpf'})[
-                0].text
-            search_results[i]['DEP_DATE'] = self.search_filter.fly_date
-            search_results[i]['DEP_TIME'] = \
-                flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
-                    0].text
-            search_results[i]['ARR_TIME'] = \
-                flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
-                    1].text
-            layovers = []
-            for j in range(search_results[i]['STOPS']):
-                layovers.append(
-                    page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[j].text.replace('layover', 'at '))
-            cabin_class = \
-                page_soup.findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[i].findAll('span', {'class': 'Xsgmwe'})[
-                    2].text
-            search_results[i]['LAYOVER'] = ' , '.join(layovers)
-            search_results[i]['CABIN_CLASS'] = cabin_class
-            i = i + 1
-
-        print('Creating DataFrame')
-        df = pd.DataFrame(search_results)
-        df = df.T
-        land_date = [self.search_filter.fly_date] * len(flight_results_unexpanded)
-        add_days_to_dep_date = list(df.ARR_TIME.str.split('+').str[1].fillna(value=0).astype(int))
-        for x in range(len(add_days_to_dep_date)):
-            land_date[x] = land_date[x] + timedelta(days=add_days_to_dep_date[x])
-
-        df['ARR_DATE'] = land_date
-        df['ARR_TIME'] = df.ARR_TIME.str.split('+').str[0]
-        df['URL'] = url
-        # to dump the flight results in csv, uncomment below line
-        # df.to_csv('GoogleFlights.csv', sep=',')
-        return df
+        return create_dataframe(search_results, len(flight_results_unexpanded), self.search_filter.fly_date, urls)
 
 
 def main():
@@ -207,8 +219,8 @@ def main():
                       '--incognito',
                       '--headless'
                       )
-    departure_airport = 'DAL'
-    arrival_airport = 'SFO'
+    departure_airport = 'JAI'
+    arrival_airport = 'JDH'
     fly_date = datetime.datetime(2021, 3, 10)
 
     # execution starts
