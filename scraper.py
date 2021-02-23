@@ -76,7 +76,7 @@ def search_flights(driver, search_filter):
     driver.click_button_xpath("//div[@class='VfPpkd-RLmnJb']")
     driver.click_button_xpath("//li[@role='option' and @data-value=2 and @class='uT1UOd']")
     driver.click_button_xpath("//span[@class='bEfgkb']")
-    sleep(1)
+    sleep(2)
     page_source = driver.page_source()
     page_soup = soup(page_source, "html.parser")
     return page_soup
@@ -132,7 +132,8 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
                 page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[
                     j].text.replace('layover', 'at '))
             cabin_classes.append(
-                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {'class': 'Xsgmwe'})[
+                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[
+                    j].findAll('span', {'class': 'Xsgmwe'})[
                     2].text)
             brands.append(
                 page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[
@@ -256,6 +257,7 @@ def main():
             break
         except Exception as e:
             # In case some random exception occurs, scraper will make 1 more attempt.
+            driver.close()
             if rerun_count == 1:
                 sys.exit('Retry failed after an exception occurred')
             continue
