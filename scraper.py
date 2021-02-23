@@ -1,6 +1,9 @@
 from bs4 import BeautifulSoup as soup
 from time import sleep
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import sys
 import datetime
 from datetime import timedelta
@@ -86,13 +89,21 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
     for flight_result in flight_results_unexpanded:
         search_results[i] = {}
         search_results[i]['DEP'] = \
-            flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
-                2].text
+            flight_result.findAll('div', {'class': 'Ak5kof'})[0].findAll('span', {
+                'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
+                0].text
+
         search_results[i]['ARR'] = \
-            flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
-                3].text
-        search_results[i]['BRAND'] = flight_result.findAll('div', {'class': 'TQqf0e sSHqwe tPgKwe ogfYpf'})[
-            0].span.text
+            flight_result.findAll('div', {'class': 'Ak5kof'})[0].findAll('span', {
+                'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
+                1].text
+
+        brands = []
+        for j in range(len(flight_result.findAll('div', {'class': 'TQqf0e sSHqwe tPgKwe ogfYpf'}))):
+            brands.append(flight_result.findAll('div', {'class': 'TQqf0e sSHqwe tPgKwe ogfYpf'})[
+            j].span.text)
+        search_results[i]['BRAND'] = '-'.join(brands)
+
         if flight_result.findAll('span', {'class': 'pIgMWd ogfYpf'})[0].text == 'Nonstop':
             search_results[i]['STOPS'] = 0
         else:
@@ -100,21 +111,25 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
                 flight_result.findAll('span', {'class': 'pIgMWd ogfYpf'})[0].text.split(' ')[0])
 
         if len(flight_result.findAll('div', {'class': 'BVAVmf I11szd POX3ye'})) == 0:
-            search_results[i]['PRICE'] = 'NA'
+            search_results[i]['PRICE'] = float('NaN')
         else:
-            search_results[i]['PRICE'] = \
-                flight_result.findAll('div', {'class': 'BVAVmf I11szd POX3ye'})[0].findAll('div')[
-                    1].span.text
+            search_results[i]['PRICE'] = float(
+                flight_result.findAll('div', {'class': 'BVAVmf I11szd POX3ye'})[0].findAll('span', {'role': 'text'})[
+                    0].text.replace(',', '')[1:])
 
         search_results[i]['TRIP_DURATION'] = flight_result.findAll('div', {'class': 'gvkrdb AdWm1c tPgKwe ogfYpf'})[
             0].text
+
         search_results[i]['DEP_DATE'] = fly_date
+
         search_results[i]['DEP_TIME'] = \
             flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
                 0].text
+
         search_results[i]['ARR_TIME'] = \
             flight_result.findAll('span', {'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
                 1].text
+
         layovers = []
         for j in range(search_results[i]['STOPS']):
             layovers.append(
@@ -123,7 +138,9 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
         cabin_class = \
             page_soup.findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[i].findAll('span', {'class': 'Xsgmwe'})[
                 2].text
+
         search_results[i]['LAYOVER'] = ' , '.join(layovers)
+
         search_results[i]['CABIN_CLASS'] = cabin_class
         i = i + 1
     return search_results
@@ -142,8 +159,8 @@ def create_dataframe(search_results, result_count, fly_date, urls):
     df['ARR_TIME'] = df.ARR_TIME.str.split('+').str[0]
     df['URL'] = urls
     # to dump the flight results in csv, uncomment below line
-    # df.to_csv('GoogleFlights.csv', sep=',')
-    return df
+    df.to_csv('GoogleFlights.csv', sep=',')
+    return df.sort_values('PRICE')
 
 
 class Scraper:
@@ -196,16 +213,21 @@ class Scraper:
             if x == len(toggles) - 1:
                 break
             self.driver.back()
-            sleep(3)
+            sleep(1)
             toggle_url = self.driver.get_element_list("//div[@class='xKbyce']")
+            # try:
+            #     a = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable("//div[@class='xKbyce']"[0]))
+            #     a.click()
+            # except TimeoutException:
+            #     pass
             if len(toggles) != len(toggle_url):
                 print('Number of flights changed from {} to {} during scraping. Re-firing'.format(len(toggles),
                                                                                                   len(
                                                                                                       toggle_url)))
                 self.driver.close()
                 self.driver = Driver(self.driver.path, self.driver.options)
-                self.scrape()
-                sys.exit(0)
+                df = self.scrape()
+                return df
             self.driver.execute_script("arguments[0].click();", toggle_url[x + 1])
         self.driver.close()
 
@@ -219,8 +241,8 @@ def main():
                       '--incognito',
                       '--headless'
                       )
-    departure_airport = 'JAI'
-    arrival_airport = 'JDH'
+    departure_airport = 'ORD'
+    arrival_airport = 'ATL'
     fly_date = datetime.datetime(2021, 3, 10)
 
     # execution starts
@@ -234,7 +256,7 @@ def main():
         except Exception as e:
             # In case some random exception occurs, scraper will make 1 more attempt.
             if rerun_count == 1:
-                sys.exit('{}: Retry failed after an exception occurred'.format(e))
+                sys.exit('Retry failed after an exception occurred')
             continue
 
 
