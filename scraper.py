@@ -1,9 +1,9 @@
 from bs4 import BeautifulSoup as soup
 from time import sleep
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+# from selenium.common.exceptions import TimeoutException
+# from selenium.webdriver.support.ui import WebDriverWait
+# from selenium.webdriver.support import expected_conditions as EC
 import sys
 import datetime
 from datetime import timedelta
@@ -98,12 +98,6 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
                 'class': 'CrAOse-hSRGPd CrAOse-hSRGPd-TGB85e-cOuCgd hide-focus-ring'})[
                 1].text
 
-        brands = []
-        for j in range(len(flight_result.findAll('div', {'class': 'TQqf0e sSHqwe tPgKwe ogfYpf'}))):
-            brands.append(flight_result.findAll('div', {'class': 'TQqf0e sSHqwe tPgKwe ogfYpf'})[
-            j].span.text)
-        search_results[i]['BRAND'] = '-'.join(brands)
-
         if flight_result.findAll('span', {'class': 'pIgMWd ogfYpf'})[0].text == 'Nonstop':
             search_results[i]['STOPS'] = 0
         else:
@@ -131,17 +125,24 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
                 1].text
 
         layovers = []
+        cabin_classes =[]
+        brands =[]
         for j in range(search_results[i]['STOPS']):
             layovers.append(
                 page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[
                     j].text.replace('layover', 'at '))
-        cabin_class = \
-            page_soup.findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[i].findAll('span', {'class': 'Xsgmwe'})[
-                2].text
+            cabin_classes.append(
+                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {'class': 'Xsgmwe'})[
+                    2].text)
+            brands.append(
+                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[
+                    j].findAll('span', {'class': 'Xsgmwe'})[
+                    0].text)
 
         search_results[i]['LAYOVER'] = ' , '.join(layovers)
+        search_results[i]['CABIN_CLASS'] = ' , '.join(cabin_classes)
+        search_results[i]['BRANDS'] = ' , '.join(brands)
 
-        search_results[i]['CABIN_CLASS'] = cabin_class
         i = i + 1
     return search_results
 
