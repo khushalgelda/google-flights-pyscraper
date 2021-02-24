@@ -75,6 +75,11 @@ def search_flights(driver, search_filter):
     driver.driver.get(url)
     driver.driver.maximize_window()
     sleep(2)
+    try:
+        driver.find_elements_by_xpath("//p[contains(text(),'no results')]")
+        return None
+    except:
+        pass
     # driver.click_button_xpath("//div[@class='VfPpkd-RLmnJb']")
     driver.click_button_xpath("//li[@role='option' and @data-value=2 and @class='uT1UOd']")
     driver.click_button_xpath("//span[@class='bEfgkb']")
@@ -192,10 +197,13 @@ class Scraper:
         self.search_filter = search_filter
 
     def scrape(self, max_flights_to_scrape):
-        # driver.set_page_load_timeout(10)
-        self.driver.driver.implicitly_wait(10)
+        # self.driver.driver.implicitly_wait(10)
 
         page_soup_unexpanded = search_flights(self.driver, self.search_filter)
+        if page_soup_unexpanded is None:
+            print('No flights found')
+            return None
+
         # find data (departure time, arrival time, airlines, flight duration, number of stops and price) in the
         # unexpanded div
         flight_results_unexpanded = page_soup_unexpanded.findAll("div", {"class": "OgQvJf nKlB3b"})
@@ -274,7 +282,7 @@ def main():
                       '--headless'
                       )
     departure_airport = 'ORD'
-    # arrival_airport = ['ATL']
+    # arrival_airport = ['ATL', 'PSE', 'ORD', 'SFO']
     arrival_airport = (
         "ATL",
         "LAX",
@@ -526,8 +534,6 @@ def main():
     i = 1
     for aairport in arrival_airport:
         print('query #{}'.format(i))
-        if departure_airport == aairport:
-            continue
         search_filter = SearchFilter(departure_airport, aairport, fly_date)
         scraper = Scraper(driver, search_filter)
         for rerun_count in range(2):
