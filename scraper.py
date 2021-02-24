@@ -86,6 +86,7 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
     print('Extracting all information about available flights')
     i = 0
     search_results = {}
+    expanded_elements = page_soup.findAll('div', {'class': 'yJwmMb'})
     for flight_result in flight_results_unexpanded:
         search_results[i] = {}
         search_results[i]['DEP'] = \
@@ -125,20 +126,22 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
                 1].text
 
         layovers = []
-        cabin_classes =[]
-        brands =[]
-        for j in range(search_results[i]['STOPS']):
-            layovers.append(
-                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[
-                    j].text.replace('layover', 'at '))
+        cabin_classes = []
+        brands = []
+        if search_results[i]['STOPS'] == 0:
             cabin_classes.append(
-                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[
-                    j].findAll('span', {'class': 'Xsgmwe'})[
-                    2].text)
+                expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[0].findAll('span', {'class': 'Xsgmwe'})[2].text)
             brands.append(
-                page_soup.findAll('div', {'class': 'yJwmMb'})[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[
-                    j].findAll('span', {'class': 'Xsgmwe'})[
-                    0].text)
+                expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[0].findAll('span', {'class': 'Xsgmwe'})[0].text)
+        else:
+            for j in range(search_results[i]['STOPS'] + 1):
+                if j < search_results[i]['STOPS']:
+                    layovers.append(
+                        expanded_elements[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[j].text.replace('layover', 'at '))
+                cabin_classes.append(
+                    expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {'class': 'Xsgmwe'})[2].text)
+                brands.append(
+                    expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {'class': 'Xsgmwe'})[0].text)
 
         search_results[i]['LAYOVER'] = ' , '.join(layovers)
         search_results[i]['CABIN_CLASS'] = ' , '.join(cabin_classes)
@@ -257,7 +260,7 @@ def main():
             break
         except Exception as e:
             # In case some random exception occurs, scraper will make 1 more attempt.
-            driver.close()
+            # driver.close()
             if rerun_count == 1:
                 sys.exit('Retry failed after an exception occurred')
             continue
