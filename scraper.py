@@ -26,7 +26,9 @@ class Driver:
 
     def click_button_xpath(self, tag_value):
         """Clicks the element found with xpath"""
-        self.driver.find_elements_by_xpath(tag_value)[0].click()
+        button = self.driver.find_elements_by_xpath(tag_value)
+        if len(button) > 0:
+            self.driver.execute_script("arguments[0].click();", button[0])
 
     def get_element_list(self, tag_value):
         """Get a list of elements from an xpath"""
@@ -72,22 +74,25 @@ def search_flights(driver, search_filter):
                                                               fly_date.strftime("%Y-%m-%d")))
     driver.driver.get(url)
     driver.driver.maximize_window()
-    sleep(4)
-    driver.click_button_xpath("//div[@class='VfPpkd-RLmnJb']")
+    sleep(2)
+    # driver.click_button_xpath("//div[@class='VfPpkd-RLmnJb']")
     driver.click_button_xpath("//li[@role='option' and @data-value=2 and @class='uT1UOd']")
     driver.click_button_xpath("//span[@class='bEfgkb']")
+    # driver.click_button_xpath("//span[text()='Sort by:']")
+    driver.click_button_xpath("//li[@role='option' and @data-value=2 and @class='uT1UOd' and text()='Price']")
     sleep(2)
+
     page_source = driver.page_source()
     page_soup = soup(page_source, "html.parser")
     return page_soup
 
 
-def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
+def get_flight_info(flight_results_unexpanded, flight_count, fly_date, page_soup):
     print('Extracting all information about available flights')
     i = 0
     search_results = {}
     expanded_elements = page_soup.findAll('div', {'class': 'yJwmMb'})
-    for flight_result in flight_results_unexpanded:
+    for flight_result in flight_results_unexpanded[0:flight_count]:
         search_results[i] = {}
         search_results[i]['DEP'] = \
             flight_result.findAll('div', {'class': 'Ak5kof'})[0].findAll('span', {
@@ -130,18 +135,25 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
         brands = []
         if search_results[i]['STOPS'] == 0:
             cabin_classes.append(
-                expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[0].findAll('span', {'class': 'Xsgmwe'})[2].text)
+                expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[0].findAll('span',
+                                                                                                  {'class': 'Xsgmwe'})[
+                    2].text)
             brands.append(
-                expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[0].findAll('span', {'class': 'Xsgmwe'})[0].text)
+                expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[0].findAll('span',
+                                                                                                  {'class': 'Xsgmwe'})[
+                    0].text)
         else:
             for j in range(search_results[i]['STOPS'] + 1):
                 if j < search_results[i]['STOPS']:
                     layovers.append(
-                        expanded_elements[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[j].text.replace('layover', 'at '))
+                        expanded_elements[i].findAll('div', {'class': 'tvtJdb eoY5cb y52p7d'})[j].text.replace(
+                            'layover', 'at '))
                 cabin_classes.append(
-                    expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {'class': 'Xsgmwe'})[2].text)
+                    expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {
+                        'class': 'Xsgmwe'})[2].text)
                 brands.append(
-                    expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {'class': 'Xsgmwe'})[0].text)
+                    expanded_elements[i].findAll('div', {'class': 'MX5RWe sSHqwe y52p7d'})[j].findAll('span', {
+                        'class': 'Xsgmwe'})[0].text)
 
         search_results[i]['LAYOVER'] = ' , '.join(layovers)
         search_results[i]['CABIN_CLASS'] = ' , '.join(cabin_classes)
@@ -151,7 +163,7 @@ def get_flight_info(flight_results_unexpanded, fly_date, page_soup):
     return search_results
 
 
-def create_dataframe(search_results, result_count, fly_date, urls):
+def create_dataframe(dep, arr, search_results, result_count, fly_date, urls):
     print('Creating DataFrame')
     df = pd.DataFrame(search_results)
     df = df.T
@@ -164,8 +176,14 @@ def create_dataframe(search_results, result_count, fly_date, urls):
     df['ARR_TIME'] = df.ARR_TIME.str.split('+').str[0]
     df['URL'] = urls
     # to dump the flight results in csv, uncomment below line
-    df.to_csv('GoogleFlights.csv', sep=',')
+    # create_csv(df, dep, arr)
+
     return df.sort_values('PRICE')
+
+
+def create_csv(df, dep, arr):
+    # to dump the flight results in csv, uncomment below line
+    df.to_csv('Flights_{}_{}.csv'.format(dep, arr), sep=',')
 
 
 class Scraper:
@@ -173,7 +191,7 @@ class Scraper:
         self.driver = driver
         self.search_filter = search_filter
 
-    def scrape(self):
+    def scrape(self, max_flights_to_scrape):
         # driver.set_page_load_timeout(10)
         self.driver.driver.implicitly_wait(10)
 
@@ -186,8 +204,17 @@ class Scraper:
         # get the list of all the toggles so that they can be expanded
         toggles = self.driver.get_element_list("//div[@class='xKbyce']")
 
+        if len(toggles) == 0:
+            print('No flights found')
+            return None
+        else:
+            if max_flights_to_scrape <= len(toggles):
+                flights_to_scrape = max_flights_to_scrape
+            else:
+                flights_to_scrape = len(toggles)
+
         # expand all the toggles first
-        for x in range(len(toggles)):
+        for x in range(flights_to_scrape):
             self.driver.execute_script("arguments[0].click();", toggles[x])
 
         # get page source of the full page to get layover info, and cabin class
@@ -195,11 +222,12 @@ class Scraper:
         page_soup = soup(page_source, "html.parser")
 
         # search_results is a dictionary to store flight info
-        search_results = get_flight_info(flight_results_unexpanded, self.search_filter.fly_date, page_soup)
+        search_results = get_flight_info(flight_results_unexpanded, flights_to_scrape, self.search_filter.fly_date,
+                                         page_soup)
 
         print('Extracting URLs for all available flights')
         urls = []
-        for x in range(len(toggles)):
+        for x in range(flights_to_scrape):
             select_flight_buttons = self.driver.get_element_list("//button[@aria-label='Select flight']")
             # the following logic is in place to avoid clicking a non-clickable button
             i = x
@@ -215,7 +243,7 @@ class Scraper:
                         sys.exit('{}: Retries to click Select flight button exhausted after {} retries '.format(e, i))
                     continue
             urls.append(self.driver.current_url())
-            if x == len(toggles) - 1:
+            if x == flights_to_scrape - 1:
                 break
             self.driver.back()
             sleep(1)
@@ -229,14 +257,13 @@ class Scraper:
                 print('Number of flights changed from {} to {} during scraping. Re-firing'.format(len(toggles),
                                                                                                   len(
                                                                                                       toggle_url)))
-                self.driver.close()
-                self.driver = Driver(self.driver.path, self.driver.options)
-                df = self.scrape()
+                # self.driver.close()
+                # self.driver = Driver(self.driver.path, self.driver.options)
+                df = self.scrape(max_flights_to_scrape)
                 return df
             self.driver.execute_script("arguments[0].click();", toggle_url[x + 1])
-        self.driver.close()
 
-        return create_dataframe(search_results, len(flight_results_unexpanded), self.search_filter.fly_date, urls)
+        return create_dataframe(self.search_filter.dep, self.search_filter.arr, search_results, flights_to_scrape, self.search_filter.fly_date, urls)
 
 
 def main():
@@ -247,23 +274,273 @@ def main():
                       '--headless'
                       )
     departure_airport = 'ORD'
-    arrival_airport = 'ATL'
+    # arrival_airport = ['ATL']
+    arrival_airport = (
+        "ATL",
+        "LAX",
+        "ORD",
+        "DFW",
+        "DEN",
+        "JFK",
+        "SFO",
+        "SEA",
+        "LAS",
+        "MCO",
+        "CLT",
+        "EWR",
+        "PHX",
+        "IAH",
+        "MIA",
+        "BOS",
+        "MSP",
+        "DTW",
+        "FLL",
+        "PHL",
+        "LGA",
+        "BWI",
+        "SLC",
+        "SAN",
+        "IAD",
+        "DCA",
+        "TPA",
+        "MDW",
+        "HNL",
+        "PDX",
+        "BNA",
+        "AUS",
+        "DAL",
+        "STL",
+        "SJC",
+        "HOU",
+        "RDU",
+        "MSY",
+        "OAK",
+        "SMF",
+        "MCI",
+        "SNA",
+        "RSW",
+        "SAT",
+        "CLE",
+        "PIT",
+        "IND",
+        "SJU",
+        "CVG",
+        "CMH",
+        "OGG",
+        "JAX",
+        "PBI",
+        "MKE",
+        "BDL",
+        "BUR",
+        "ONT",
+        "ANC",
+        "ABQ",
+        "BUF",
+        "OMA",
+        "CHS",
+        "MEM",
+        "RIC",
+        "RNO",
+        "OKC",
+        "BOI",
+        "SDF",
+        "ORF",
+        "PVD",
+        "GEG",
+        "KOA",
+        "TUS",
+        "GRR",
+        "LGB",
+        "ELP",
+        "LIH",
+        "SFB",
+        "BHM",
+        "TUL",
+        "ALB",
+        "SAV",
+        "DSM",
+        "PSP",
+        "MYR",
+        "GSP",
+        "ROC",
+        "SYR",
+        "TYS",
+        "GUM",
+        "MSN",
+        "PIE",
+        "PNS",
+        "PWM",
+        "LIT",
+        "GSO",
+        "SRQ",
+        "FAT",
+        "XNA",
+        "IWA",
+        "HPN",
+        "ICT",
+        "MHT",
+        "DAY",
+        "COS",
+        "PGD",
+        "VPS",
+        "AVL",
+        "BZN",
+        "ISP",
+        "MDT",
+        "LEX",
+        "HSV",
+        "BTV",
+        "MAF",
+        "CID",
+        "CAE",
+        "ECP",
+        "EUG",
+        "STT",
+        "SGF",
+        "ITO",
+        "FSD",
+        "FAI",
+        "CHA",
+        "JAN",
+        "ILM",
+        "MFR",
+        "ACY",
+        "LBB",
+        "SBA",
+        "EYW",
+        "RDM",
+        "FAR",
+        "BIL",
+        "TTN",
+        "MSO",
+        "JAC",
+        "PSC",
+        "ABE",
+        "SBN",
+        "TLH",
+        "MFE",
+        "CAK",
+        "FWA",
+        "JNU",
+        "BTR",
+        "PAE",
+        "CHO",
+        "ATW",
+        "GPT",
+        "BQN",
+        "ROA",
+        "GPI",
+        "MLI",
+        "GSN",
+        "AMA",
+        "GRB",
+        "RAP",
+        "PIA",
+        "DAB",
+        "HRL",
+        "BLI",
+        "AGS",
+        "MOB",
+        "CRP",
+        "SHV",
+        "BGR",
+        "BIS",
+        "ASE",
+        "FNT",
+        "AVP",
+        "TVC",
+        "GNV",
+        "SWF",
+        "SBP",
+        "LFT",
+        "GJT",
+        "EVV",
+        "MLB",
+        "STS",
+        "MRY",
+        "CRW",
+        "STX",
+        "TRI",
+        "FAY",
+        "PHF",
+        "BMI",
+        "DRO",
+        "MGM",
+        "UNV",
+        "GCN",
+        "EGE",
+        "RST",
+        "JQF",
+        "GRK",
+        "GTF",
+        "IDA",
+        "LAN",
+        "LNK",
+        "MOT",
+        "OAJ",
+        "BVU",
+        "BET",
+        "LBE",
+        "MTJ",
+        "ELM",
+        "DLH",
+        "LCK",
+        "BLV",
+        "AZO",
+        "SAF",
+        "AEX",
+        "CWA",
+        "KTN",
+        "ACK",
+        "MBS",
+        "BFL",
+        "COU",
+        "BRO",
+        "PBG",
+        "TOL",
+        "IAG",
+        "FLG",
+        "HLN",
+        "GFK",
+        "RFD",
+        "MLU",
+        "EWN",
+        "HXD",
+        "PVU",
+        "ITH",
+        "HTS",
+        "ERI",
+        "HDN",
+        "CMI",
+        "PSE",
+        "SGU",
+        "SCK",
+        "NYL",
+        "CPR"
+    )
     fly_date = datetime.datetime(2021, 3, 10)
 
-    # execution starts
+    # Execution starts
+
     driver = Driver(web_driver_path, driver_options)
-    search_filter = SearchFilter(departure_airport, arrival_airport, fly_date)
-    scraper = Scraper(driver, search_filter)
-    for rerun_count in range(2):
-        try:
-            scraper.scrape()
-            break
-        except Exception as e:
-            # In case some random exception occurs, scraper will make 1 more attempt.
-            # driver.close()
-            if rerun_count == 1:
-                sys.exit('Retry failed after an exception occurred')
+    i = 1
+    for aairport in arrival_airport:
+        print('query #{}'.format(i))
+        if departure_airport == aairport:
             continue
+        search_filter = SearchFilter(departure_airport, aairport, fly_date)
+        scraper = Scraper(driver, search_filter)
+        for rerun_count in range(2):
+            try:
+                scraper.scrape(7)
+                break
+            except Exception as e:
+                # In case some random exception occurs, scraper will make 1 more attempt.
+                if rerun_count == 1:
+                    sys.exit('Retry failed after an exception occurred')
+                continue
+        i = i + 1
+    driver.close()
 
 
 main()
