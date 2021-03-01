@@ -8,6 +8,7 @@ import sys
 import datetime
 from datetime import timedelta
 import pandas as pd
+import os
 
 
 class Driver:
@@ -195,14 +196,16 @@ def create_dataframe(dep, arr, search_results, result_count, fly_date, urls):
     df['ARR_TIME'] = df.ARR_TIME.str.split('+').str[0]
     df['URL'] = urls
     # to dump the flight results in csv, uncomment below line
-    # create_csv(df, dep, arr)
+    create_csv(df, dep, arr, fly_date)
 
     return df.sort_values('PRICE')
 
 
-def create_csv(df, dep, arr):
+def create_csv(df, dep, arr, date):
     # to dump the flight results in csv, uncomment below line
-    df.to_csv('flights_data/Flights_{}_{}.csv'.format(dep, arr), sep=',')
+    if not os.path.exists('flights_data'):
+        os.makedirs('flights_data')
+    df.to_csv('flights_data/Flights_{}_{}_{}.csv'.format(dep, arr, date.strftime('%Y%m%d')), sep=',')
 
 
 class Scraper:
